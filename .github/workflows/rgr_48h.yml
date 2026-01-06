@@ -1,0 +1,42 @@
+name: RGR Content Hub (48h)
+
+on:
+  schedule:
+    # a cada 48h às 09:00 BRT (~12:00 UTC)
+    - cron: "0 12 */2 * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Hub
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+
+      - name: Generate feed
+        run: |
+          python scripts/run_48h.py
+
+      - name: Push feed into Website repo
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -e
+          git clone https://x-access-token:${GH_TOKEN}@github.com/YooDxE3/rgr-website-tech.git website_repo
+          mkdir -p website_repo/public/content
+          cp output/site_feed.json website_repo/public/content/feed.json
+          cd website_repo
+          git config user.name "rgr-bot"
+          git config user.email "bot@rgr.local"
+          git add public/content/feed.json
+          git commit -m "chore: update feed (48h)" || echo "Nothing to commit"
+          git push
