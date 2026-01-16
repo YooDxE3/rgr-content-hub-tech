@@ -22,8 +22,8 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("A variável de ambiente GEMINI_API_KEY não está definida.")
 
-# URL direta da API do Google (v1beta) - Modelo Gemini 1.5 Flash
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+# --- MUDANÇA AQUI: Usando 'gemini-pro' que é universalmente disponível ---
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={API_KEY}"
 
 # =========================
 # FUNÇÕES AUXILIARES
@@ -44,7 +44,7 @@ def generate_health_tips():
     Gere 3 dicas de saúde e bem-estar para o ambiente de trabalho.
     
     REGRAS OBRIGATÓRIAS:
-    1. A resposta deve ser APENAS um JSON puro. Não use blocos de código markdown (```json).
+    1. A resposta deve ser APENAS um JSON puro. Não use blocos de código markdown.
     2. A estrutura deve ser uma lista de objetos.
     3. Cada objeto deve ter:
        - "id": string curta em inglês (ex: "ergonomics")
@@ -79,33 +79,39 @@ def generate_health_tips():
     try:
         # Faz a chamada POST direta
         response = requests.post(API_URL, json=payload, headers={"Content-Type": "application/json"})
-        response.raise_for_status() # Levanta erro se não for 200 OK
+        
+        # Se der erro, imprime o texto da resposta para sabermos o motivo
+        if response.status_code != 200:
+            print(f"ERRO API ({response.status_code}): {response.text}")
+            response.raise_for_status()
         
         result = response.json()
         
         # Extrai o texto da resposta
-        text_content = result['candidates'][0]['content']['parts'][0]['text']
+        try:
+            text_content = result['candidates'][0]['content']['parts'][0]['text']
+        except keyError:
+            print("A IA retornou uma resposta vazia ou bloqueada por segurança.")
+            return []
         
-        # Limpa possíveis formatações markdown que a IA coloque por teimosia
+        # Limpeza bruta para garantir que o JSON funcione mesmo se a IA for "teimosa"
         text_content = text_content.replace("```json", "").replace("```", "").strip()
         
         return json.loads(text_content)
 
     except Exception as e:
-        print(f"Erro na requisição para o Google: {e}")
-        if 'response' in locals():
-            print(f"Detalhe do erro: {response.text}")
+        print(f"Erro na execução: {e}")
         return []
 
 # =========================
 # GERAÇÃO DO FEED
 # =========================
 
-print("🤖 Solicitando dicas para o Gemini (via REST API)...")
+print("🤖 Solicitando dicas para o Gemini Pro (via REST API)...")
 health_tips_data = generate_health_tips()
 
 if not health_tips_data:
-    print("⚠️ Nenhuma dica gerada ou erro na API. Abortando.")
+    print("⚠️ Nenhuma dica gerada. Verifique os logs de erro acima.")
     exit(1)
 
 now = datetime.utcnow().isoformat()
