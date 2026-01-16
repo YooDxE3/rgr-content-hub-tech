@@ -22,7 +22,10 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Generate feed
+      - name: Generate feed with AI
+        env:
+          # ADICIONE ISTO: A chave do Gemini vem dos Secrets do GitHub
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python scripts/run_48h.py
 
