@@ -1,6 +1,7 @@
 import json
+import os
+import google.generativeai as genai
 from datetime import datetime
-import unicodedata
 import re
 from pathlib import Path
 
@@ -13,114 +14,79 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 FEED_PATH = OUTPUT_DIR / "site_feed.json"
 
-AUTHOR = "RGR Saúde"
+AUTHOR = "RGR Saúde (IA)"
 CATEGORY = "saude"
+
+# Configura a API do Gemini
+API_KEY = os.environ.get("GEMINI_API_KEY")
+if not API_KEY:
+    raise ValueError("A variável de ambiente GEMINI_API_KEY não está definida.")
+
+genai.configure(api_key=API_KEY)
 
 # =========================
 # FUNÇÕES AUXILIARES
 # =========================
 
-def slugify(text: str) -> str:
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-    text = re.sub(r"[^\w\s-]", "", text.lower())
-    return re.sub(r"[\s_-]+", "-", text).strip("-")
-
 def excerpt_from_html(html: str, limit: int = 160) -> str:
     text = re.sub(r"<[^>]+>", "", html)
-    return text[:limit].rstrip()
+    return text[:limit].rstrip() + "..."
 
-# =========================
-# DICAS DE SAÚDE (MULTILÍNGUE)
-# =========================
+def generate_health_tips():
+    """
+    Usa o Gemini para gerar 3 dicas de saúde estruturadas.
+    """
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    prompt = """
+    Você é um assistente de saúde corporativa da RGR Saúde.
+    Gere 3 dicas de saúde e bem-estar para o ambiente de trabalho.
+    
+    REGRAS:
+    1. Retorne APENAS um JSON válido. Sem markdown (```json).
+    2. A estrutura deve ser uma lista de objetos.
+    3. Cada objeto deve ter:
+       - "id": uma string curta em inglês (ex: "ergonomics-tips")
+       - "tags": lista com 3 tags misturando pt/en (ex: ["saúde", "health", "ergonomia"])
+       - "content": um objeto com as chaves "pt", "en", "es".
+       - Dentro de cada língua, deve ter "title" e "html".
+       - O "html" deve conter 2 ou 3 parágrafos curtos dentro de tags <p>.
 
-# Estrutura: ID único + Traduções
-health_tips_data = [
-    {
-        "id": "water",
-        "tags": ["hidratação", "hydration", "saúde", "health"],
+    Exemplo de estrutura desejada:
+    [
+      {
+        "id": "exemplo",
+        "tags": ["tag1", "tag2"],
         "content": {
-            "pt": {
-                "title": "A importância de beber água todos os dias",
-                "html": (
-                    "<p>Manter o corpo hidratado é essencial para o bom funcionamento do organismo.</p>"
-                    "<p>A água auxilia na digestão, circulação e controle da temperatura.</p>"
-                )
-            },
-            "en": {
-                "title": "The importance of drinking water every day",
-                "html": (
-                    "<p>Keeping the body hydrated is essential for the proper functioning of the organism.</p>"
-                    "<p>Water aids in digestion, circulation, and temperature control.</p>"
-                )
-            },
-            "es": {
-                "title": "La importancia de beber agua todos los días",
-                "html": (
-                    "<p>Mantener el cuerpo hidratado es esencial para el buen funcionamiento del organismo.</p>"
-                    "<p>El agua ayuda en la digestión, la circulación y el control de la temperatura.</p>"
-                )
-            }
+          "pt": { "title": "Título PT", "html": "<p>Texto PT</p>" },
+          "en": { "title": "Title EN", "html": "<p>Text EN</p>" },
+          "es": { "title": "Título ES", "html": "<p>Texto ES</p>" }
         }
-    },
-    {
-        "id": "sleep",
-        "tags": ["sono", "sleep", "sueño", "bem-estar"],
-        "content": {
-            "pt": {
-                "title": "Por que dormir bem melhora sua saúde",
-                "html": (
-                    "<p>Uma boa noite de sono é fundamental para a recuperação física e mental.</p>"
-                    "<p>Dormir mal pode afetar o sistema imunológico e a memória.</p>"
-                )
-            },
-            "en": {
-                "title": "Why sleeping well improves your health",
-                "html": (
-                    "<p>A good night's sleep is fundamental for physical and mental recovery.</p>"
-                    "<p>Poor sleep can affect the immune system and memory.</p>"
-                )
-            },
-            "es": {
-                "title": "Por qué dormir bien mejora tu salud",
-                "html": (
-                    "<p>Una buena noche de sueño es fundamental para la recuperación física y mental.</p>"
-                    "<p>Dormir mal puede afectar el sistema inmunológico y la memoria.</p>"
-                )
-            }
-        }
-    },
-    {
-        "id": "food",
-        "tags": ["nutrição", "nutrition", "alimentación"],
-        "content": {
-            "pt": {
-                "title": "Alimentação equilibrada faz diferença",
-                "html": (
-                    "<p>Uma alimentação balanceada fornece os nutrientes necessários para o corpo.</p>"
-                    "<p>Evitar ultraprocessados e priorizar alimentos naturais melhora a disposição.</p>"
-                )
-            },
-            "en": {
-                "title": "Balanced diet makes a difference",
-                "html": (
-                    "<p>A balanced diet provides the necessary nutrients for the body.</p>"
-                    "<p>Avoiding ultra-processed foods improves energy levels.</p>"
-                )
-            },
-            "es": {
-                "title": "Una alimentación equilibrada marca la diferencia",
-                "html": (
-                    "<p>Una alimentación equilibrada proporciona los nutrientes necesarios para el cuerpo.</p>"
-                    "<p>Evitar los ultraprocesados mejora la disposición.</p>"
-                )
-            }
-        }
-    }
-]
+      }
+    ]
+    """
+
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"Erro ao gerar conteúdo com IA: {e}")
+        # Fallback: Retorna uma lista vazia ou dados estáticos de emergência
+        return []
 
 # =========================
 # GERAÇÃO DO FEED
 # =========================
+
+print("🤖 Solicitando dicas para o Gemini...")
+health_tips_data = generate_health_tips()
+
+if not health_tips_data:
+    print("⚠️ Nenhuma dica gerada. Abortando.")
+    exit(1)
 
 now = datetime.utcnow().isoformat()
 
@@ -129,25 +95,25 @@ feed = {
     "posts": []
 }
 
-# Loop pelos dados e pelas línguas
+# Processa os dados retornados pela IA
 for item in health_tips_data:
-    base_id = item["id"]
-    tags = item["tags"]
+    base_id = item.get("id", "post")
+    tags = item.get("tags", ["saúde"])
     
+    # Loop pelas línguas para criar os posts individuais
     for lang in ["pt", "en", "es"]:
-        data = item["content"].get(lang)
+        content_data = item.get("content", {}).get(lang)
         
-        if data:
-            # Cria um ID único combinando slug + lang (ex: water-en)
+        if content_data:
             post_id = f"{base_id}-{lang}"
             
             post = {
                 "id": post_id,
                 "category": CATEGORY,
-                "lang": lang, # CAMPO IMPORTANTE PARA O FILTRO NO SITE
-                "title": data["title"],
-                "excerpt": excerpt_from_html(data["html"]),
-                "content": data["html"],
+                "lang": lang,
+                "title": content_data["title"],
+                "excerpt": excerpt_from_html(content_data["html"]),
+                "content": content_data["html"],
                 "tags": tags,
                 "published_at": now,
                 "author": AUTHOR
@@ -162,4 +128,4 @@ for item in health_tips_data:
 with open(FEED_PATH, "w", encoding="utf-8") as f:
     json.dump(feed, f, ensure_ascii=False, indent=2)
 
-print(f"✅ Feed gerado com {len(feed['posts'])} posts (PT/EN/ES)")
+print(f"✅ Feed gerado com sucesso: {len(feed['posts'])} posts criados via IA.")
