@@ -39,19 +39,15 @@ def get_working_model_url():
             print(f"❌ Erro ao listar modelos: {data['error']['message']}")
             return None
 
-        # Procura um modelo que seja 'Gemini' e suporte 'generateContent'
         for model in data.get('models', []):
             name = model.get('name', '')
             methods = model.get('supportedGenerationMethods', [])
             
             if 'generateContent' in methods and 'gemini' in name.lower():
-                # Preferência por modelos Flash ou Pro (mais rápidos/estáveis)
                 if 'flash' in name or 'pro' in name:
                     print(f"✅ Modelo encontrado e selecionado: {name}")
-                    # O 'name' já vem no formato 'models/gemini-xyz'
                     return f"https://generativelanguage.googleapis.com/v1beta/{name}:generateContent?key={API_KEY}"
         
-        # Se não achou preferidos, pega o primeiro que aparecer
         if data.get('models'):
             fallback = data['models'][0]['name']
             print(f"⚠️ Usando modelo de fallback: {fallback}")
@@ -66,31 +62,37 @@ def get_working_model_url():
 # FUNÇÕES DE GERAÇÃO
 # =========================
 
-def excerpt_from_html(html: str, limit: int = 160) -> str:
+def excerpt_from_html(html: str, limit: int = 120) -> str:
+    # Reduzi o limite do resumo também para garantir
     text = re.sub(r"<[^>]+>", "", html)
     return text[:limit].rstrip() + "..."
 
 def generate_health_tips():
-    # Passo 1: Descobre a URL correta dinamicamente
     api_url = get_working_model_url()
     
     if not api_url:
-        print("❌ Nenhum modelo compatível encontrado. Verifique se a API 'Generative Language' está ativada no Google Cloud.")
+        print("❌ Nenhum modelo compatível encontrado.")
         return []
 
+    # --- MUDANÇA AQUI: Prompt focado em concisão ---
     prompt_text = """
     Você é um assistente de saúde corporativa da RGR Saúde.
     Gere 3 dicas de saúde e bem-estar para o ambiente de trabalho.
     
-    REGRAS OBRIGATÓRIAS:
+    REGRAS DE TAMANHO (IMPORTANTE):
+    1. Título: Máximo de 7 palavras. Curto e chamativo.
+    2. Texto (HTML): Máximo de 40 palavras. Use APENAS 1 parágrafo curto (<p>).
+    3. Estilo: Direto, motivador e objetivo. Sem enrolação.
+    
+    REGRAS TÉCNICAS:
     1. A resposta deve ser APENAS um JSON puro. SEM markdown.
     2. Estrutura: Lista de objetos.
     3. Cada objeto: "id", "tags" (3 tags), "content" (pt, en, es).
-    4. "content" deve ter "title" e "html" (tags <p>).
+    4. "content" deve ter "title" e "html".
 
     Exemplo JSON:
     [
-      { "id": "ex", "tags": ["a","b"], "content": { "pt": { "title": "...", "html": "..." }, "en": {...}, "es": {...} } }
+      { "id": "ex", "tags": ["a","b"], "content": { "pt": { "title": "Beba Água", "html": "<p>A hidratação melhora o foco imediato. Mantenha uma garrafa na mesa.</p>" }, "en": {...}, "es": {...} } }
     ]
     """
 
@@ -109,7 +111,6 @@ def generate_health_tips():
         result = response.json()
         text_content = result['candidates'][0]['content']['parts'][0]['text']
         
-        # Limpeza de segurança
         text_content = text_content.replace("```json", "").replace("```", "").strip()
         
         return json.loads(text_content)
@@ -122,7 +123,7 @@ def generate_health_tips():
 # FLUXO PRINCIPAL
 # =========================
 
-print("🤖 Iniciando robô de conteúdo...")
+print("🤖 Iniciando robô de conteúdo (Modo: Curtas e Diretas)...")
 health_tips_data = generate_health_tips()
 
 if not health_tips_data:
