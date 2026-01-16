@@ -36,7 +36,7 @@ def generate_health_tips():
     """
     Usa o Gemini para gerar 3 dicas de saúde estruturadas.
     """
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-pro')
     
     prompt = """
     Você é um assistente de saúde corporativa da RGR Saúde.
