@@ -1,7 +1,6 @@
 import json
 import os
-from google import genai
-from google.genai import types
+import requests
 from datetime import datetime
 import re
 from pathlib import Path
@@ -18,41 +17,42 @@ FEED_PATH = OUTPUT_DIR / "site_feed.json"
 AUTHOR = "RGR Saúde (IA)"
 CATEGORY = "saude"
 
-# Configura a API do Gemini (Nova Biblioteca)
+# Pega a chave dos Segredos
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("A variável de ambiente GEMINI_API_KEY não está definida.")
 
-client = genai.Client(api_key=API_KEY)
+# URL direta da API do Google (v1beta) - Modelo Gemini 1.5 Flash
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
 # =========================
 # FUNÇÕES AUXILIARES
 # =========================
 
 def excerpt_from_html(html: str, limit: int = 160) -> str:
+    # Remove tags HTML para criar o resumo
     text = re.sub(r"<[^>]+>", "", html)
     return text[:limit].rstrip() + "..."
 
 def generate_health_tips():
     """
-    Usa o Gemini (via google-genai) para gerar 3 dicas de saúde estruturadas.
+    Usa a API REST do Gemini para gerar 3 dicas de saúde estruturadas.
     """
     
-    prompt = """
+    prompt_text = """
     Você é um assistente de saúde corporativa da RGR Saúde.
     Gere 3 dicas de saúde e bem-estar para o ambiente de trabalho.
     
-    REGRAS:
-    1. Retorne APENAS um JSON válido.
+    REGRAS OBRIGATÓRIAS:
+    1. A resposta deve ser APENAS um JSON puro. Não use blocos de código markdown (```json).
     2. A estrutura deve ser uma lista de objetos.
     3. Cada objeto deve ter:
-       - "id": uma string curta em inglês (ex: "ergonomics-tips")
-       - "tags": lista com 3 tags misturando pt/en (ex: ["saúde", "health", "ergonomia"])
-       - "content": um objeto com as chaves "pt", "en", "es".
-       - Dentro de cada língua, deve ter "title" e "html".
-       - O "html" deve conter 2 ou 3 parágrafos curtos dentro de tags <p>.
+       - "id": string curta em inglês (ex: "ergonomics")
+       - "tags": lista com 3 tags (ex: ["saúde", "health", "ergonomia"])
+       - "content": objeto com as chaves "pt", "en", "es".
+       - Dentro de cada língua: "title" e "html" (com tags <p>).
 
-    Exemplo de estrutura desejada:
+    Exemplo de JSON de retorno:
     [
       {
         "id": "exemplo",
@@ -66,29 +66,46 @@ def generate_health_tips():
     ]
     """
 
+    # Monta o corpo da requisição HTTP
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt_text}]
+        }],
+        "generationConfig": {
+            "responseMimeType": "application/json"
+        }
+    }
+
     try:
-        # Chamada atualizada para a nova biblioteca
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            )
-        )
-        return json.loads(response.text)
+        # Faz a chamada POST direta
+        response = requests.post(API_URL, json=payload, headers={"Content-Type": "application/json"})
+        response.raise_for_status() # Levanta erro se não for 200 OK
+        
+        result = response.json()
+        
+        # Extrai o texto da resposta
+        text_content = result['candidates'][0]['content']['parts'][0]['text']
+        
+        # Limpa possíveis formatações markdown que a IA coloque por teimosia
+        text_content = text_content.replace("```json", "").replace("```", "").strip()
+        
+        return json.loads(text_content)
+
     except Exception as e:
-        print(f"Erro ao gerar conteúdo com IA: {e}")
+        print(f"Erro na requisição para o Google: {e}")
+        if 'response' in locals():
+            print(f"Detalhe do erro: {response.text}")
         return []
 
 # =========================
 # GERAÇÃO DO FEED
 # =========================
 
-print("🤖 Solicitando dicas para o Gemini (via google-genai)...")
+print("🤖 Solicitando dicas para o Gemini (via REST API)...")
 health_tips_data = generate_health_tips()
 
 if not health_tips_data:
-    print("⚠️ Nenhuma dica gerada. Abortando.")
+    print("⚠️ Nenhuma dica gerada ou erro na API. Abortando.")
     exit(1)
 
 now = datetime.utcnow().isoformat()
