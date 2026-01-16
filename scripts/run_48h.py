@@ -11,90 +11,105 @@ from pathlib import Path
 
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
-
 FEED_PATH = OUTPUT_DIR / "site_feed.json"
 
 AUTHOR = "RGR Saúde (IA)"
 CATEGORY = "saude"
 
-# Pega a chave dos Segredos
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("A variável de ambiente GEMINI_API_KEY não está definida.")
 
-# --- MUDANÇA AQUI: Usando 'gemini-pro' que é universalmente disponível ---
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={API_KEY}"
+# =========================
+# FUNÇÃO: DESCOBRIR MODELO VÁLIDO (AUTO-FIX)
+# =========================
+def get_working_model_url():
+    """
+    Consulta a API para listar os modelos disponíveis para esta chave
+    e retorna a URL do primeiro que servir.
+    """
+    print("🔍 Buscando modelos disponíveis para sua chave...")
+    list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={API_KEY}"
+    
+    try:
+        response = requests.get(list_url)
+        data = response.json()
+        
+        if 'error' in data:
+            print(f"❌ Erro ao listar modelos: {data['error']['message']}")
+            return None
+
+        # Procura um modelo que seja 'Gemini' e suporte 'generateContent'
+        for model in data.get('models', []):
+            name = model.get('name', '')
+            methods = model.get('supportedGenerationMethods', [])
+            
+            if 'generateContent' in methods and 'gemini' in name.lower():
+                # Preferência por modelos Flash ou Pro (mais rápidos/estáveis)
+                if 'flash' in name or 'pro' in name:
+                    print(f"✅ Modelo encontrado e selecionado: {name}")
+                    # O 'name' já vem no formato 'models/gemini-xyz'
+                    return f"https://generativelanguage.googleapis.com/v1beta/{name}:generateContent?key={API_KEY}"
+        
+        # Se não achou preferidos, pega o primeiro que aparecer
+        if data.get('models'):
+            fallback = data['models'][0]['name']
+            print(f"⚠️ Usando modelo de fallback: {fallback}")
+            return f"https://generativelanguage.googleapis.com/v1beta/{fallback}:generateContent?key={API_KEY}"
+            
+    except Exception as e:
+        print(f"Erro na conexão de listagem: {e}")
+    
+    return None
 
 # =========================
-# FUNÇÕES AUXILIARES
+# FUNÇÕES DE GERAÇÃO
 # =========================
 
 def excerpt_from_html(html: str, limit: int = 160) -> str:
-    # Remove tags HTML para criar o resumo
     text = re.sub(r"<[^>]+>", "", html)
     return text[:limit].rstrip() + "..."
 
 def generate_health_tips():
-    """
-    Usa a API REST do Gemini para gerar 3 dicas de saúde estruturadas.
-    """
+    # Passo 1: Descobre a URL correta dinamicamente
+    api_url = get_working_model_url()
     
+    if not api_url:
+        print("❌ Nenhum modelo compatível encontrado. Verifique se a API 'Generative Language' está ativada no Google Cloud.")
+        return []
+
     prompt_text = """
     Você é um assistente de saúde corporativa da RGR Saúde.
     Gere 3 dicas de saúde e bem-estar para o ambiente de trabalho.
     
     REGRAS OBRIGATÓRIAS:
-    1. A resposta deve ser APENAS um JSON puro. Não use blocos de código markdown.
-    2. A estrutura deve ser uma lista de objetos.
-    3. Cada objeto deve ter:
-       - "id": string curta em inglês (ex: "ergonomics")
-       - "tags": lista com 3 tags (ex: ["saúde", "health", "ergonomia"])
-       - "content": objeto com as chaves "pt", "en", "es".
-       - Dentro de cada língua: "title" e "html" (com tags <p>).
+    1. A resposta deve ser APENAS um JSON puro. SEM markdown.
+    2. Estrutura: Lista de objetos.
+    3. Cada objeto: "id", "tags" (3 tags), "content" (pt, en, es).
+    4. "content" deve ter "title" e "html" (tags <p>).
 
-    Exemplo de JSON de retorno:
+    Exemplo JSON:
     [
-      {
-        "id": "exemplo",
-        "tags": ["tag1", "tag2"],
-        "content": {
-          "pt": { "title": "Título PT", "html": "<p>Texto PT</p>" },
-          "en": { "title": "Title EN", "html": "<p>Text EN</p>" },
-          "es": { "title": "Título ES", "html": "<p>Texto ES</p>" }
-        }
-      }
+      { "id": "ex", "tags": ["a","b"], "content": { "pt": { "title": "...", "html": "..." }, "en": {...}, "es": {...} } }
     ]
     """
 
-    # Monta o corpo da requisição HTTP
     payload = {
-        "contents": [{
-            "parts": [{"text": prompt_text}]
-        }],
-        "generationConfig": {
-            "responseMimeType": "application/json"
-        }
+        "contents": [{ "parts": [{"text": prompt_text}] }],
+        "generationConfig": { "responseMimeType": "application/json" }
     }
 
     try:
-        # Faz a chamada POST direta
-        response = requests.post(API_URL, json=payload, headers={"Content-Type": "application/json"})
+        response = requests.post(api_url, json=payload, headers={"Content-Type": "application/json"})
         
-        # Se der erro, imprime o texto da resposta para sabermos o motivo
         if response.status_code != 200:
             print(f"ERRO API ({response.status_code}): {response.text}")
-            response.raise_for_status()
-        
-        result = response.json()
-        
-        # Extrai o texto da resposta
-        try:
-            text_content = result['candidates'][0]['content']['parts'][0]['text']
-        except keyError:
-            print("A IA retornou uma resposta vazia ou bloqueada por segurança.")
             return []
         
-        # Limpeza bruta para garantir que o JSON funcione mesmo se a IA for "teimosa"
+        result = response.json()
+        text_content = result['candidates'][0]['content']['parts'][0]['text']
+        
+        # Limpeza de segurança
         text_content = text_content.replace("```json", "").replace("```", "").strip()
         
         return json.loads(text_content)
@@ -104,14 +119,14 @@ def generate_health_tips():
         return []
 
 # =========================
-# GERAÇÃO DO FEED
+# FLUXO PRINCIPAL
 # =========================
 
-print("🤖 Solicitando dicas para o Gemini Pro (via REST API)...")
+print("🤖 Iniciando robô de conteúdo...")
 health_tips_data = generate_health_tips()
 
 if not health_tips_data:
-    print("⚠️ Nenhuma dica gerada. Verifique os logs de erro acima.")
+    print("⚠️ Falha na geração. Abortando.")
     exit(1)
 
 now = datetime.utcnow().isoformat()
@@ -121,19 +136,15 @@ feed = {
     "posts": []
 }
 
-# Processa os dados retornados pela IA
 for item in health_tips_data:
     base_id = item.get("id", "post")
     tags = item.get("tags", ["saúde"])
     
-    # Loop pelas línguas para criar os posts individuais
     for lang in ["pt", "en", "es"]:
         content_data = item.get("content", {}).get(lang)
-        
         if content_data:
             post_id = f"{base_id}-{lang}"
-            
-            post = {
+            feed["posts"].append({
                 "id": post_id,
                 "category": CATEGORY,
                 "lang": lang,
@@ -143,13 +154,7 @@ for item in health_tips_data:
                 "tags": tags,
                 "published_at": now,
                 "author": AUTHOR
-            }
-
-            feed["posts"].append(post)
-
-# =========================
-# SALVA O ARQUIVO
-# =========================
+            })
 
 with open(FEED_PATH, "w", encoding="utf-8") as f:
     json.dump(feed, f, ensure_ascii=False, indent=2)
