@@ -24,10 +24,6 @@ if not API_KEY:
 # FUNÇÃO: DESCOBRIR MODELO VÁLIDO (AUTO-FIX)
 # =========================
 def get_working_model_url():
-    """
-    Consulta a API para listar os modelos disponíveis para esta chave
-    e retorna a URL do primeiro que servir.
-    """
     print("🔍 Buscando modelos disponíveis para sua chave...")
     list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={API_KEY}"
     
@@ -62,10 +58,12 @@ def get_working_model_url():
 # FUNÇÕES DE GERAÇÃO
 # =========================
 
-def excerpt_from_html(html: str, limit: int = 120) -> str:
-    # Reduzi o limite do resumo também para garantir
-    text = re.sub(r"<[^>]+>", "", html)
-    return text[:limit].rstrip() + "..."
+def excerpt_from_html(html: str) -> str:
+    """
+    Remove tags HTML e retorna o texto COMPLETO.
+    NUNCA corta e NUNCA adiciona reticências (...).
+    """
+    return re.sub(r"<[^>]+>", "", html).strip()
 
 def generate_health_tips():
     api_url = get_working_model_url()
@@ -74,15 +72,15 @@ def generate_health_tips():
         print("❌ Nenhum modelo compatível encontrado.")
         return []
 
-    # --- MUDANÇA AQUI: Prompt focado em concisão ---
+    # Prompt mantido rígido no tamanho para garantir que caiba no card
     prompt_text = """
     Você é um assistente de saúde corporativa da RGR Saúde.
     Gere 3 dicas de saúde e bem-estar para o ambiente de trabalho.
     
     REGRAS DE TAMANHO (IMPORTANTE):
     1. Título: Máximo de 7 palavras. Curto e chamativo.
-    2. Texto (HTML): Máximo de 40 palavras. Use APENAS 1 parágrafo curto (<p>).
-    3. Estilo: Direto, motivador e objetivo. Sem enrolação.
+    2. Texto (HTML): Máximo de 35 palavras. Use APENAS 1 parágrafo curto (<p>).
+    3. Estilo: Direto, motivador e objetivo.
     
     REGRAS TÉCNICAS:
     1. A resposta deve ser APENAS um JSON puro. SEM markdown.
@@ -92,7 +90,7 @@ def generate_health_tips():
 
     Exemplo JSON:
     [
-      { "id": "ex", "tags": ["a","b"], "content": { "pt": { "title": "Beba Água", "html": "<p>A hidratação melhora o foco imediato. Mantenha uma garrafa na mesa.</p>" }, "en": {...}, "es": {...} } }
+      { "id": "ex", "tags": ["a","b"], "content": { "pt": { "title": "Beba Água", "html": "<p>A hidratação melhora o foco. Mantenha uma garrafa na mesa.</p>" }, "en": {...}, "es": {...} } }
     ]
     """
 
@@ -109,7 +107,11 @@ def generate_health_tips():
             return []
         
         result = response.json()
-        text_content = result['candidates'][0]['content']['parts'][0]['text']
+        try:
+            text_content = result['candidates'][0]['content']['parts'][0]['text']
+        except (KeyError, IndexError):
+             print("❌ A IA retornou uma resposta vazia.")
+             return []
         
         text_content = text_content.replace("```json", "").replace("```", "").strip()
         
@@ -123,7 +125,7 @@ def generate_health_tips():
 # FLUXO PRINCIPAL
 # =========================
 
-print("🤖 Iniciando robô de conteúdo (Modo: Curtas e Diretas)...")
+print("🤖 Iniciando robô de conteúdo (Modo: Texto Completo)...")
 health_tips_data = generate_health_tips()
 
 if not health_tips_data:
@@ -150,6 +152,7 @@ for item in health_tips_data:
                 "category": CATEGORY,
                 "lang": lang,
                 "title": content_data["title"],
+                # Agora chamamos a função sem limites
                 "excerpt": excerpt_from_html(content_data["html"]),
                 "content": content_data["html"],
                 "tags": tags,
