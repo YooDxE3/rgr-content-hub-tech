@@ -1,6 +1,7 @@
 import json
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from datetime import datetime
 import re
 from pathlib import Path
@@ -17,12 +18,12 @@ FEED_PATH = OUTPUT_DIR / "site_feed.json"
 AUTHOR = "RGR Saúde (IA)"
 CATEGORY = "saude"
 
-# Configura a API do Gemini
+# Configura a API do Gemini (Nova Biblioteca)
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if not API_KEY:
     raise ValueError("A variável de ambiente GEMINI_API_KEY não está definida.")
 
-genai.configure(api_key=API_KEY)
+client = genai.Client(api_key=API_KEY)
 
 # =========================
 # FUNÇÕES AUXILIARES
@@ -34,16 +35,15 @@ def excerpt_from_html(html: str, limit: int = 160) -> str:
 
 def generate_health_tips():
     """
-    Usa o Gemini para gerar 3 dicas de saúde estruturadas.
+    Usa o Gemini (via google-genai) para gerar 3 dicas de saúde estruturadas.
     """
-    model = genai.GenerativeModel('gemini-pro')
     
     prompt = """
     Você é um assistente de saúde corporativa da RGR Saúde.
     Gere 3 dicas de saúde e bem-estar para o ambiente de trabalho.
     
     REGRAS:
-    1. Retorne APENAS um JSON válido. Sem markdown (```json).
+    1. Retorne APENAS um JSON válido.
     2. A estrutura deve ser uma lista de objetos.
     3. Cada objeto deve ter:
        - "id": uma string curta em inglês (ex: "ergonomics-tips")
@@ -67,21 +67,24 @@ def generate_health_tips():
     """
 
     try:
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
+        # Chamada atualizada para a nova biblioteca
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
         )
         return json.loads(response.text)
     except Exception as e:
         print(f"Erro ao gerar conteúdo com IA: {e}")
-        # Fallback: Retorna uma lista vazia ou dados estáticos de emergência
         return []
 
 # =========================
 # GERAÇÃO DO FEED
 # =========================
 
-print("🤖 Solicitando dicas para o Gemini...")
+print("🤖 Solicitando dicas para o Gemini (via google-genai)...")
 health_tips_data = generate_health_tips()
 
 if not health_tips_data:
